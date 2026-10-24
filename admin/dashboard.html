@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASIR Feedback Loop Observability</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --card: #232323;
+    --card-2: #2b2b2b;
+    --accent: #00bcd4;
+    --text: #e8e8e8;
+    --muted: #9aa4aa;
+    --border: #363636;
+    --ok: #2e7d32;
+    --warn: #ef6c00;
+    --bad: #c62828;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 18px;
+    font-family: Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  h1, h2 {
+    margin: 0;
+    color: var(--accent);
+  }
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #last-updated {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  button {
+    background: var(--accent);
+    border: 0;
+    border-radius: 8px;
+    color: #001014;
+    font-weight: 700;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .summary-card {
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    min-height: 100px;
+  }
+  .summary-title {
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .summary-value {
+    margin-top: 8px;
+    font-size: 34px;
+    line-height: 1;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .summary-sub {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .badge {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .badge-ready { background: #1b5e20; color: #d7ffd9; }
+  .badge-warn { background: #4e2d00; color: #ffdca8; }
+  .badge-bad { background: #5b1212; color: #ffd1d1; }
+  .section-title {
+    margin-bottom: 10px;
+    font-size: 16px;
+    color: var(--accent);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead th {
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 6px;
+  }
+  tbody td {
+    border-bottom: 1px solid #303030;
+    padding: 8px 6px;
+    vertical-align: top;
+  }
+  tbody tr:nth-child(odd) { background: #252525; }
+  tbody tr:hover { background: #2f2f2f; }
+  .danger-row { background: rgba(198, 40, 40, 0.22) !important; }
+  .empty {
+    color: var(--muted);
+    padding: 8px 2px 2px 2px;
+  }
+  .weights-legend {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .w-good { background: rgba(46, 125, 50, 0.34); }
+  .w-mid { background: rgba(130, 130, 130, 0.20); }
+  .w-bad { background: rgba(198, 40, 40, 0.30); }
+  .gap-list {
+    margin: 0;
+    padding-left: 18px;
+  }
+  .gap-list li {
+    margin-bottom: 8px;
+  }
+  .gap-time {
+    color: var(--muted);
+    font-size: 12px;
+    margin-left: 6px;
+  }
+  .progress-wrap {
+    background: #2b2b2b;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    height: 18px;
+    margin: 8px 0;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--warn);
+    transition: width 0.2s ease-in-out;
+  }
+  .progress-bar.ready {
+    background: var(--ok);
+  }
+  .class-breakdown {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .failure-distribution-card {
+    height: 56vh;
+    max-height: 56vh;
+    min-height: 56vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .failure-distribution-card,
+  .failure-distribution-card * {
+    transition: none !important;
+    animation: none !important;
+  }
+  .failure-chart-wrap {
+    flex: 1;
+    min-height: 0;
+  }
+  #failure-chart {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  @media (max-width: 1100px) {
+    .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 700px) {
+    .summary-grid { grid-template-columns: 1fr; }
+    .header-row { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <section class="card">
+      <div class="header-row">
+        <h1>ASIR Feedback Loop Observability</h1>
+        <div class="header-actions">
+          <span id="last-updated">Last updated: --:--:--</span>
+          <button id="refresh-btn" type="button">Refresh</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">Summary</div>
+      <div class="summary-grid">
+        <div class="summary-card">
+          <div class="summary-title">TOTAL FEEDBACK EVENTS</div>
+          <div class="summary-value" id="sum-total">0</div>
+          <div class="summary-sub">&nbsp;</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-title">HELPFUL</div>
+          <div class="summary-value" id="sum-helpful">0</div>
+          <div class="summary-sub" id="sum-helpful-pct">0.0%</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-title">NOT HELPFUL</div>
+          <div class="summary-value" id="sum-not-helpful">0</div>
+          <div class="summary-sub" id="sum-not-helpful-pct">0.0%</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-title">XGBOOST TRAINING LABELS</div>
+          <div class="summary-value" id="sum-labels">0</div>
+          <div class="summary-sub"><span id="sum-label-badge" class="badge badge-bad">Not ready</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card failure-distribution-card">
+      <div class="section-title">Failure Class Distribution</div>
+      <div class="failure-chart-wrap">
+        <canvas id="failure-chart"></canvas>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">Adaptive Retriever Weights by Query Type</div>
+      <div id="weights-wrap"></div>
+      <div class="weights-legend">Green (&gt;1.15) = rewarded | Red (&lt;0.85) = penalized | Gray (0.85-1.15) = neutral</div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">Weight Attribution History</div>
+      <div id="weight-history-wrap"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">Recent Feedback Events</div>
+      <div id="recent-feedback-wrap"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">Knowledge Gaps (Re-ingestion Queue)</div>
+      <div id="knowledge-gaps-wrap"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">XGBoost Training Readiness</div>
+      <div id="xgb-progress-text">0 / 50 labels collected</div>
+      <div class="progress-wrap">
+        <div id="xgb-progress-bar" class="progress-bar"></div>
+      </div>
+      <div id="xgb-class-breakdown" class="class-breakdown"></div>
+    </section>
+  </div>
+
+  <script>
+    const failureColors = {
+      confirmed_success: "#2e7d32",
+      system_error_retrieval: "#c62828",
+      system_error_generation: "#ef9a9a",
+      system_error_hallucination: "#ff7043",
+      system_error_knowledge_gap: "#1976d2",
+      user_error: "#9e9e9e",
+      ambiguous: "#616161"
+    };
+
+    let failureChart = null;
+
+    function safeArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function parseTimeHHMM(value) {
+      if (!value) return "--:--";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "--:--";
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+
+    function truncate60(text) {
+      const s = String(text || "");
+      return s.length > 60 ? s.slice(0, 60) + "..." : s;
+    }
+
+    function formatGrounding(score) {
+      const n = Number(score);
+      return Number.isFinite(n) ? n.toFixed(2) : "-";
+    }
+
+    function truthyHallucinatedRefs(value) {
+      if (!value) return false;
+      if (Array.isArray(value)) return value.length > 0;
+      const s = String(value).trim();
+      return s !== "" && s !== "[]" && s.toLowerCase() !== "null" && s.toLowerCase() !== "none";
+    }
+
+    function renderSummary(summary) {
+      const total = Number(summary?.total || 0);
+      const helpful = Number(summary?.helpful || 0);
+      const notHelpful = Number(summary?.not_helpful || 0);
+      const helpfulPct = total > 0 ? (helpful * 100 / total) : 0;
+      const notHelpfulPct = total > 0 ? (notHelpful * 100 / total) : 0;
+
+      const labelStats = window.__latestLabelStats || {};
+      const totalLabels = Number(labelStats.total_labels || 0);
+      const ready = totalLabels >= 50;
+
+      document.getElementById("sum-total").textContent = String(total);
+      document.getElementById("sum-helpful").textContent = String(helpful);
+      document.getElementById("sum-not-helpful").textContent = String(notHelpful);
+      document.getElementById("sum-helpful-pct").textContent = `${helpfulPct.toFixed(1)}%`;
+      document.getElementById("sum-not-helpful-pct").textContent = `${notHelpfulPct.toFixed(1)}%`;
+      document.getElementById("sum-labels").textContent = String(totalLabels);
+
+      const badge = document.getElementById("sum-label-badge");
+      badge.className = "badge " + (ready ? "badge-ready" : (totalLabels >= 25 ? "badge-warn" : "badge-bad"));
+      badge.textContent = ready ? "Ready (>=50)" : `Need ${Math.max(0, 50 - totalLabels)} more`;
+    }
+
+    function renderFailureChart(breakdown) {
+      const orderedClasses = [
+        "confirmed_success",
+        "system_error_retrieval",
+        "system_error_generation",
+        "system_error_hallucination",
+        "system_error_knowledge_gap",
+        "user_error",
+        "ambiguous"
+      ];
+      const rows = safeArray(breakdown);
+      const map = {};
+      for (const row of rows) {
+        map[row.class] = Number(row.count || 0);
+      }
+      const labels = orderedClasses;
+      const data = orderedClasses.map((k) => map[k] || 0);
+      const colors = orderedClasses.map((k) => failureColors[k] || "#9e9e9e");
+
+      if (failureChart) { failureChart.destroy(); }
+      const ctx = document.getElementById("failure-chart").getContext("2d");
+      const canvas = ctx.canvas;
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      failureChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [{ data: data, backgroundColor: colors, barThickness: 10, maxBarThickness: 10 }]
+        },
+        options: {
+          indexAxis: "y",
+          responsive: false,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, ticks: { color: "#e8e8e8" }, grid: { color: "#333" } },
+            y: { ticks: { color: "#e8e8e8" }, grid: { color: "#333" } }
+          }
+        }
+      });
+    }
+
+    function renderWeightHeatmap(currentWeights) {
+      const wrap = document.getElementById("weights-wrap");
+      const rows = safeArray(currentWeights);
+      if (rows.length === 0) {
+        wrap.innerHTML = `<div class="empty">No weight data yet.</div>`;
+        return;
+      }
+
+      const queryTypes = ["factual", "relational", "comparative", "exploratory"];
+      const strategies = ["vector", "bm25", "graph", "hierarchical"];
+      const matrix = {};
+      for (const qt of queryTypes) {
+        matrix[qt] = {};
+        for (const st of strategies) matrix[qt][st] = null;
+      }
+
+      for (const row of rows) {
+        const qt = row.query_type;
+        const st = row.strategy;
+        const val = Number(row.weight);
+        if (matrix[qt] && Object.prototype.hasOwnProperty.call(matrix[qt], st) && Number.isFinite(val)) {
+          matrix[qt][st] = val;
+        }
+      }
+
+      let html = `<table><thead><tr><th>QUERY TYPE</th>`;
+      for (const st of strategies) html += `<th>${st.toUpperCase()}</th>`;
+      html += `</tr></thead><tbody>`;
+      for (const qt of queryTypes) {
+        html += `<tr><td>${qt}</td>`;
+        for (const st of strategies) {
+          const val = matrix[qt][st];
+          if (val === null) {
+            html += `<td class="w-mid">-</td>`;
+          } else if (val > 1.15) {
+            html += `<td class="w-good">${val.toFixed(2)}</td>`;
+          } else if (val < 0.85) {
+            html += `<td class="w-bad">${val.toFixed(2)}</td>`;
+          } else {
+            html += `<td class="w-mid">${val.toFixed(2)}</td>`;
+          }
+        }
+        html += `</tr>`;
+      }
+      html += `</tbody></table>`;
+      wrap.innerHTML = html;
+    }
+
+    function renderWeightHistory(weightHistory) {
+      const wrap = document.getElementById("weight-history-wrap");
+      const rows = safeArray(weightHistory);
+      if (rows.length === 0) {
+        wrap.innerHTML = `<div class="empty">No weight changes recorded yet.</div>`;
+        return;
+      }
+
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>TIMESTAMP</th><th>QUERY TYPE</th><th>STRATEGY</th><th>OLD WEIGHT</th><th>NEW WEIGHT</th><th>FAILURE CLASS</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      for (const r of rows.slice(0, 50)) {
+        html += `
+          <tr>
+            <td>${parseTimeHHMM(r.timestamp)}</td>
+            <td>${r.query_type || "-"}</td>
+            <td>${r.strategy || "-"}</td>
+            <td>${Number.isFinite(Number(r.old_weight)) ? Number(r.old_weight).toFixed(2) : "-"}</td>
+            <td>${Number.isFinite(Number(r.new_weight)) ? Number(r.new_weight).toFixed(2) : "-"}</td>
+            <td>${r.failure_class || "-"}</td>
+          </tr>
+        `;
+      }
+      html += `</tbody></table>`;
+      wrap.innerHTML = html;
+    }
+
+    function renderRecentFeedback(recentFeedback) {
+      const wrap = document.getElementById("recent-feedback-wrap");
+      const rows = safeArray(recentFeedback);
+      if (rows.length === 0) {
+        wrap.innerHTML = `<div class="empty">No recent feedback events yet.</div>`;
+        return;
+      }
+
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>TIMESTAMP</th><th>QUERY (60 CHARS)</th><th>TYPE</th><th>RATING</th><th>FAILURE REASON</th><th>FAILURE CLASS</th><th>GROUNDING SCORE</th><th>CITATION VALID</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      for (const r of rows.slice(0, 20)) {
+        const citationValid = Number(r.citation_valid) === 1 ? "✓" : "X";
+        const rowClass = truthyHallucinatedRefs(r.hallucinated_refs) ? "danger-row" : "";
+        html += `
+          <tr class="${rowClass}">
+            <td>${parseTimeHHMM(r.timestamp)}</td>
+            <td>${truncate60(r.query_text || r.query_id || "")}</td>
+            <td>${r.query_type || "-"}</td>
+            <td>${r.rating || "-"}</td>
+            <td>${r.failure_reason || "-"}</td>
+            <td>${r.failure_class || "-"}</td>
+            <td>${formatGrounding(r.grounding_score)}</td>
+            <td>${citationValid}</td>
+          </tr>
+        `;
+      }
+      html += `</tbody></table>`;
+      wrap.innerHTML = html;
+    }
+
+    function renderKnowledgeGaps(knowledgeGaps) {
+      const wrap = document.getElementById("knowledge-gaps-wrap");
+      const rows = safeArray(knowledgeGaps);
+      if (rows.length === 0) {
+        wrap.innerHTML = `<div class="empty">No knowledge gaps recorded yet.</div>`;
+        return;
+      }
+      let html = `<ul class="gap-list">`;
+      for (const row of rows.slice(0, 10)) {
+        html += `<li>${row.query_text || "(no query text)"} <span class="gap-time">${parseTimeHHMM(row.timestamp)}</span></li>`;
+      }
+      html += `</ul>`;
+      wrap.innerHTML = html;
+    }
+
+    function renderXGBoostReadiness(labelStats) {
+      const stats = labelStats || {};
+      const total = Number(stats.total_labels || 0);
+      const pct = Math.max(0, Math.min(100, (total / 50) * 100));
+      const perClass = safeArray(stats.per_class);
+
+      document.getElementById("xgb-progress-text").textContent = `${total} / 50 labels collected`;
+      const bar = document.getElementById("xgb-progress-bar");
+      bar.style.width = `${pct}%`;
+      bar.className = total >= 50 ? "progress-bar ready" : "progress-bar";
+
+      if (perClass.length === 0) {
+        document.getElementById("xgb-class-breakdown").textContent = "No labels collected yet.";
+        return;
+      }
+
+      const classMap = { factual: 0, relational: 0, comparative: 0, exploratory: 0 };
+      for (const item of perClass) {
+        if (Object.prototype.hasOwnProperty.call(classMap, item.type)) {
+          classMap[item.type] = Number(item.count || 0);
+        }
+      }
+      document.getElementById("xgb-class-breakdown").textContent =
+        `factual: ${classMap.factual} | relational: ${classMap.relational} | comparative: ${classMap.comparative} | exploratory: ${classMap.exploratory}`;
+    }
+
+    // On page load and every 30 seconds:
+    async function loadData() {
+      try {
+        const data = await fetch('/admin/data').then(r => r.json());
+        window.__latestLabelStats = data.label_stats || {};
+        renderSummary(data.summary);
+        renderFailureChart(data.summary.failure_breakdown);
+        renderWeightHeatmap(data.current_weights);
+        renderWeightHistory(data.weight_history);
+        renderRecentFeedback(data.recent_feedback);
+        renderKnowledgeGaps(data.knowledge_gaps);
+        renderXGBoostReadiness(data.label_stats);
+        document.getElementById('last-updated').textContent =
+            'Last updated: ' + new Date().toLocaleTimeString();
+      } catch (err) {
+        console.error(err);
+        document.getElementById("weights-wrap").innerHTML = `<div class="empty">Failed to load dashboard data.</div>`;
+        document.getElementById("weight-history-wrap").innerHTML = `<div class="empty">Failed to load dashboard data.</div>`;
+        document.getElementById("recent-feedback-wrap").innerHTML = `<div class="empty">Failed to load dashboard data.</div>`;
+        document.getElementById("knowledge-gaps-wrap").innerHTML = `<div class="empty">Failed to load dashboard data.</div>`;
+        document.getElementById("xgb-class-breakdown").textContent = "No labels collected yet.";
+        document.getElementById('last-updated').textContent = 'Last updated: failed';
+      }
+    }
+
+    document.getElementById("refresh-btn").addEventListener("click", () => {
+      loadData();
+    });
+
+    loadData();
+    setInterval(loadData, 30000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment files
+.env
+.env.*
+
+# Project-generated artifacts
+database/
+models/
+*.pkl
+*.db
+*.sqlite3
+*.log
+
+# Data folders (often large / local-generated)
+data_file/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local media
+WhatsApp Image 2026-06-18 at 20.32.14.jpeg
